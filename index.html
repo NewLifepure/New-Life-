@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نيو لايف - تسجيل الدخول</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-box">
+      <div class="login-logo">
+        <div class="logo-icon">💧</div>
+        <h1>نيو لايف</h1>
+        <p>نظام إدارة الفلاتر والصيانة</p>
+      </div>
+
+      <div class="form-group">
+        <label>اسم المستخدم</label>
+        <input type="text" id="username" placeholder="أدخل اسم المستخدم" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور</label>
+        <input type="password" id="password" placeholder="أدخل كلمة المرور"
+               autocomplete="current-password"
+               onkeydown="if(event.key==='Enter') doLogin()">
+      </div>
+
+      <div id="error" style="display:none;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:700;margin-bottom:14px">
+        ❌ بيانات خاطئة، حاول مرة أخرى
+      </div>
+
+      <button class="btn btn-primary btn-full" onclick="doLogin()" style="font-size:16px;padding:14px">
+        🔐 تسجيل الدخول
+      </button>
+
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;line-height:2">
+        <strong style="color:#64748b">بيانات تجريبية:</strong><br>
+        مدير: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">admin</code> /
+        <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">admin123</code><br>
+        مشرف: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">supervisor</code> /
+        <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">super123</code><br>
+        فني: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">tech1</code> /
+        <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">tech123</code>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const s = DB.getSession();
+    if (s) {
+      window.location.href = s.role === 'technician' ? 'technician.html' : 'dashboard.html';
+    }
+
+    function doLogin() {
+      const u = document.getElementById('username').value.trim();
+      const p = document.getElementById('password').value.trim();
+      const user = login(u, p);
+      if (!user) {
+        document.getElementById('error').style.display = 'block';
+        return;
+      }
+      window.location.href = user.role === 'technician' ? 'technician.html' : 'dashboard.html';
+    }
+  </script>
+</body>
+</html>

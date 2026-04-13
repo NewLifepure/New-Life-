@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نيو لايف - الرئيسية</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .report-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    @media(max-width:768px){ .report-grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+  <div class="overlay-bg" id="overlayBg" onclick="toggleSidebar()"></div>
+
+  <div class="layout">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main-content">
+
+      <div class="topbar">
+        <div>
+          <div class="page-title">لوحة التحكم 📊</div>
+          <div class="page-subtitle" id="dateLabel"></div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <!-- WhatsApp Section -->
+      <div class="whatsapp-section" id="whatsappSection" style="display:none">
+        <div class="whatsapp-header">
+          <div class="whatsapp-icon">📱</div>
+          <div>
+            <div class="whatsapp-title">تذكير الصيانة عبر واتساب</div>
+            <div class="whatsapp-sub" id="whatsappSubtitle"></div>
+          </div>
+          <div style="margin-right:auto;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-outline" onclick="openMsgTemplate()" style="border-color:#16a34a;color:#16a34a">✏️ تخصيص الرسالة</button>
+            <button class="btn btn-sm btn-whatsapp" onclick="sendAllWhatsapp()">📤 إرسال للكل</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>العميل</th>
+                <th>الهاتف</th>
+                <th>العنوان</th>
+                <th>موعد الصيانة</th>
+                <th>الحالة</th>
+                <th>إرسال</th>
+              </tr>
+            </thead>
+            <tbody id="whatsappTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="report-grid" style="margin-bottom:24px">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📅 صيانات قريبة (30 يوم)</div></div>
+          <div id="upcomingList"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">⏳ مهام تنتظر موافقة</div></div>
+          <div id="pendingList"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Message Template Modal -->
+  <div class="modal-overlay" id="msgModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">✏️ تخصيص رسالة الواتساب</div>
+        <button class="modal-close" onclick="hideModal('msgModal')">✕</button>
+      </div>
+      <div class="form-group">
+        <label>نص الرسالة</label>
+        <textarea id="msgTemplate" rows="6" style="font-size:14px;line-height:1.8"></textarea>
+      </div>
+      <div style="background:#f8fafc;padding:12px;border-radius:10px;font-size:12px;color:#64748b;margin-bottom:16px">
+        💡 يمكنك استخدام: <code>[اسم العميل]</code> و <code>[موعد الصيانة]</code> وسيتم استبدالهم تلقائياً
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="resetTemplate()">إعادة تعيين</button>
+        <button class="btn btn-primary" onclick="saveTemplate()">حفظ</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const session = requireAuth(['admin', 'supervisor']);
+    document.getElementById('sidebar').innerHTML = renderSidebar('dashboard');
+    document.getElementById('dateLabel').textContent = new Date().toLocaleDateString('ar-EG', {
+      weekday:'long', year:'numeric', month:'long', day:'numeric'
+    });
+
+    const DEFAULT_MSG = `عزيزي [اسم العميل] 👋
+
+نود تذكيركم بموعد صيانة فلتر المياه الخاص بكم في تاريخ [موعد الصيانة].
+
+للحجز أو الاستفسار تواصل معنا.
+
+شركة نيو لايف 💧
+لمياه نقية وصحة أفضل`;
+
+    function getTemplate() {
+      return localStorage.getItem('nl_msg_template') || DEFAULT_MSG;
+    }
+
+    function buildMsg(client) {
+      return getTemplate()
+        .replace('[اسم العميل]', client.name)
+        .replace('[موعد الصيانة]', formatDate(client.next_maintenance));
+    }
+
+    function sendWhatsapp(phone, msg) {
+      const clean = phone.replace(/\D/g, '');
+      const num = clean.startsWith('0') ? '2' + clean : clean;
+      window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
+    function sendAllWhatsapp() {
+      const rows = document.querySelectorAll('#whatsappTable tr[data-phone]');
+      if (!rows.length) { toast('لا يوجد عملاء', 'error'); return; }
+      rows.forEach((row, i) => {
+        setTimeout(() => {
+          const phone = row.dataset.phone;
+          const msg = row.dataset.msg;
+          sendWhatsapp(phone, msg);
+        }, i * 800);
+      });
+      toast(`جاري إرسال ${rows.length} رسالة...`, 'info');
+    }
+
+    function openMsgTemplate() {
+      document.getElementById('msgTemplate').value = getTemplate();
+      showModal('msgModal');
+    }
+
+    function saveTemplate() {
+      localStorage.setItem('nl_msg_template', document.getElementById('msgTemplate').value);
+      toast('تم حفظ الرسالة', 'success');
+      hideModal('msgModal');
+      loadDashboard();
+    }
+
+    function resetTemplate() {
+      document.getElementById('msgTemplate').value = DEFAULT_MSG;
+    }
+
+    function loadDashboard() {
+      const clients = DB.getClients();
+      const tasks = DB.getTasks();
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      const monthEnd = new Date(today.getFullYear(), today.getMonth()+1, 0).toISOString().split('T')[0];
+      const in7 = new Date(today); in7.setDate(today.getDate()+7);
+      const in7Str = in7.toISOString().split('T')[0];
+      const in30 = new Date(today); in30.setDate(today.getDate()+30);
+      const in30Str = in30.toISOString().split('T')[0];
+
+      const redAlerts    = clients.filter(c => getClientStatus(c.next_maintenance) === 'overdue').length;
+      const yellowAlerts = clients.filter(c => getClientStatus(c.next_maintenance) === 'upcoming').length;
+      const pendingCount = tasks.filter(t => t.status === 'done_by_tech').length;
+      const invAlerts    = getInventoryAlerts().length;
+      const isAdmin      = session.role === 'admin';
+      const totalRevenue = clients.reduce((s,c) => s+(parseFloat(c.amount_paid)||0), 0);
+      const tasksRevenue = tasks.filter(t=>t.status==='confirmed').reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
+
+      // Stats
+      document.getElementById('statsGrid').innerHTML = `
+        <div class="stat-card blue" style="cursor:pointer" onclick="location='clients.html'">
+          <div class="stat-icon blue">👥</div>
+          <div><div class="stat-value">${clients.length}</div><div class="stat-label">إجمالي العملاء</div></div>
+        </div>
+        <div class="stat-card red" style="cursor:pointer" onclick="location='clients.html'">
+          <div class="stat-icon red">🔴</div>
+          <div><div class="stat-value">${redAlerts}</div><div class="stat-label">صيانة متأخرة</div></div>
+        </div>
+        <div class="stat-card orange" style="cursor:pointer" onclick="location='clients.html'">
+          <div class="stat-icon orange">🟡</div>
+          <div><div class="stat-value">${yellowAlerts}</div><div class="stat-label">صيانة خلال 14 يوم</div></div>
+        </div>
+        <div class="stat-card cyan" style="cursor:pointer" onclick="location='tasks.html'">
+          <div class="stat-icon cyan">⏳</div>
+          <div><div class="stat-value">${pendingCount}</div><div class="stat-label">تنتظر موافقة</div></div>
+        </div>
+        ${invAlerts > 0 ? `<div class="stat-card red" style="cursor:pointer" onclick="location='inventory.html'">
+          <div class="stat-icon red">📦</div>
+          <div><div class="stat-value">${invAlerts}</div><div class="stat-label">تنبيهات المخزون</div></div>
+        </div>` : ''}
+        ${isAdmin ? `
+        <div class="stat-card purple">
+          <div class="stat-icon purple">💰</div>
+          <div><div class="stat-value">${totalRevenue.toLocaleString('ar-EG')}</div><div class="stat-label">إجمالي المبالغ (ج)</div></div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon green">✅</div>
+          <div><div class="stat-value">${tasksRevenue.toLocaleString('ar-EG')}</div><div class="stat-label">إيرادات الزيارات (ج)</div></div>
+        </div>` : ''}
+      `;
+
+      // WhatsApp table - clients with maintenance within 7 days
+      const weekClients = clients.filter(c =>
+        c.next_maintenance && c.next_maintenance >= todayStr && c.next_maintenance <= in7Str && c.phone
+      ).sort((a,b) => a.next_maintenance.localeCompare(b.next_maintenance));
+
+      const wsSection = document.getElementById('whatsappSection');
+      if (weekClients.length > 0) {
+        wsSection.style.display = 'block';
+        document.getElementById('whatsappSubtitle').textContent =
+          `${weekClients.length} عميل موعد صيانتهم خلال 7 أيام`;
+        document.getElementById('whatsappTable').innerHTML = weekClients.map(c => {
+          const msg = buildMsg(c);
+          const status = getClientStatus(c.next_maintenance);
+          return `<tr data-phone="${c.phone}" data-msg="${encodeURIComponent(msg)}">
+            <td><strong>${c.name}</strong></td>
+            <td>${c.phone}</td>
+            <td style="font-size:12px">${c.address||'-'}</td>
+            <td>${formatDate(c.next_maintenance)}</td>
+            <td>${statusBadgeHTML(status)}</td>
+            <td>
+              <button class="btn btn-xs btn-whatsapp" onclick="sendWhatsapp('${c.phone}', decodeURIComponent('${encodeURIComponent(msg)}'))">
+                📱 واتساب
+              </button>
+            </td>
+          </tr>`;
+        }).join('');
+      } else {
+        wsSection.style.display = 'none';
+      }
+
+      // Upcoming 30 days
+      const upcoming = clients.filter(c =>
+        c.next_maintenance && c.next_maintenance >= todayStr && c.next_maintenance <= in30Str
+      ).sort((a,b) => a.next_maintenance.localeCompare(b.next_maintenance)).slice(0,8);
+
+      document.getElementById('upcomingList').innerHTML = upcoming.length
+        ? upcoming.map(c => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">
+            <div>
+              <div style="font-weight:700;font-size:14px">${c.name}</div>
+              <div style="font-size:12px;color:#64748b">${c.phone||''}</div>
+            </div>
+            <div style="text-align:left">
+              ${statusBadgeHTML(getClientStatus(c.next_maintenance))}
+              <div style="font-size:11px;color:#64748b;margin-top:3px">${formatDate(c.next_maintenance)}</div>
+            </div>
+          </div>`).join('')
+        : '<div class="empty-state"><div class="empty-icon">📅</div><p>لا يوجد مواعيد قريبة</p></div>';
+
+      // Pending tasks
+      const users = DB.getUsers();
+      const pending = tasks.filter(t => t.status === 'done_by_tech').slice(0,5);
+      document.getElementById('pendingList').innerHTML = pending.length
+        ? pending.map(t => {
+            const c = clients.find(x => x.id === t.client_id);
+            const tech = users.find(u => u.id === t.technician_id);
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">
+              <div>
+                <div style="font-weight:700;font-size:14px">${c ? c.name : 'عميل'}</div>
+                <div style="font-size:12px;color:#64748b">الفني: ${tech ? tech.name : '-'}</div>
+              </div>
+              ${isAdmin ? `<a href="tasks.html" class="btn btn-xs btn-primary">مراجعة</a>` : ''}
+            </div>`;
+          }).join('')
+        : '<div class="empty-state"><div class="empty-icon">✅</div><p>لا توجد مهام معلقة</p></div>';
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('overlayBg').classList.toggle('show');
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نيو لايف - المخزون</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+  <div class="overlay-bg" id="overlayBg" onclick="toggleSidebar()"></div>
+
+  <div class="layout">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main-content">
+      <div class="page-header">
+        <div>
+          <div class="page-title">المخزون</div>
+          <div class="page-subtitle">إدارة قطع الغيار والمواد</div>
+        </div>
+        <button class="btn btn-primary" onclick="openAddModal()">+ إضافة صنف</button>
+      </div>
+
+      <!-- Alert banner -->
+      <div id="alertBanner"></div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>اسم الصنف</th>
+                <th>الكمية المتاحة</th>
+                <th>حد التنبيه</th>
+                <th>الحالة</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="invTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay" id="invModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="invModalTitle">إضافة صنف</div>
+        <button class="modal-close" onclick="hideModal('invModal')">✕</button>
+      </div>
+      <div class="form-group">
+        <label>اسم الصنف *</label>
+        <input type="text" id="inv_name" placeholder="مثال: فلتر RO 75 GPD">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-group">
+          <label>الكمية</label>
+          <input type="number" id="inv_qty" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label>حد التنبيه</label>
+          <input type="number" id="inv_threshold" min="1" value="5">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="hideModal('invModal')">إلغاء</button>
+        <button class="btn btn-primary" onclick="saveItem()">حفظ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adjust Quantity Modal -->
+  <div class="modal-overlay" id="adjustModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">تعديل الكمية</div>
+        <button class="modal-close" onclick="hideModal('adjustModal')">✕</button>
+      </div>
+      <div id="adjustItemName" style="font-weight:700;margin-bottom:16px;font-size:16px"></div>
+      <div class="form-group">
+        <label>نوع التعديل</label>
+        <select id="adj_type">
+          <option value="add">إضافة للمخزون</option>
+          <option value="remove">خصم من المخزون</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>الكمية</label>
+        <input type="number" id="adj_qty" min="1" value="1">
+      </div>
+      <div class="form-group">
+        <label>السبب</label>
+        <input type="text" id="adj_reason" placeholder="مثال: استلام شحنة جديدة">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="hideModal('adjustModal')">إلغاء</button>
+        <button class="btn btn-primary" onclick="applyAdjustment()">تطبيق</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const session = requireAuth(['admin']);
+    document.getElementById('sidebar').innerHTML = renderSidebar('inventory');
+
+    let editingId = null;
+    let adjustingId = null;
+
+    function renderInventory() {
+      const inv = DB.getInventory();
+      const alerts = inv.filter(i => i.quantity <= i.alertThreshold);
+
+      // Alert banner
+      document.getElementById('alertBanner').innerHTML = alerts.length
+        ? `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;padding:14px 18px;margin-bottom:20px;color:#991b1b;font-weight:600">
+            ⚠️ تنبيه: ${alerts.length} صنف وصل للحد الأدنى: ${alerts.map(a => a.name).join('، ')}
+           </div>` : '';
+
+      document.getElementById('invTable').innerHTML = inv.length
+        ? inv.map((item, i) => {
+            const isLow = item.quantity <= item.alertThreshold;
+            return `<tr style="${isLow ? 'background:#fff5f5' : ''}">
+              <td>${i + 1}</td>
+              <td><strong>${item.name}</strong></td>
+              <td><span style="font-size:20px;font-weight:900;color:${isLow ? '#dc2626' : '#16a34a'}">${item.quantity}</span></td>
+              <td>${item.alertThreshold}</td>
+              <td>${isLow
+                ? '<span class="badge badge-danger">⚠️ منخفض</span>'
+                : '<span class="badge badge-success">✅ كافي</span>'}</td>
+              <td>
+                <button class="btn btn-sm btn-success" onclick="openAdjust('${item.id}')">تعديل الكمية</button>
+                <button class="btn btn-sm btn-primary" onclick="openEdit('${item.id}')">تعديل</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteItem('${item.id}')">حذف</button>
+              </td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="6" style="text-align:center;padding:40px;color:#64748b">لا يوجد أصناف</td></tr>';
+    }
+
+    function openAddModal() {
+      editingId = null;
+      document.getElementById('invModalTitle').textContent = 'إضافة صنف';
+      document.getElementById('inv_name').value = '';
+      document.getElementById('inv_qty').value = '0';
+      document.getElementById('inv_threshold').value = '5';
+      showModal('invModal');
+    }
+
+    function openEdit(id) {
+      const item = DB.getInventory().find(i => i.id === id);
+      editingId = id;
+      document.getElementById('invModalTitle').textContent = 'تعديل صنف';
+      document.getElementById('inv_name').value = item.name;
+      document.getElementById('inv_qty').value = item.quantity;
+      document.getElementById('inv_threshold').value = item.alertThreshold;
+      showModal('invModal');
+    }
+
+    function saveItem() {
+      const name = document.getElementById('inv_name').value.trim();
+      if (!name) { toast('الاسم مطلوب', 'error'); return; }
+      const qty = parseInt(document.getElementById('inv_qty').value) || 0;
+      const threshold = parseInt(document.getElementById('inv_threshold').value) || 5;
+      const inv = DB.getInventory();
+      if (editingId) {
+        const idx = inv.findIndex(i => i.id === editingId);
+        inv[idx] = { ...inv[idx], name, quantity: qty, alertThreshold: threshold };
+        toast('تم التحديث', 'success');
+      } else {
+        inv.push({ id: genId(), name, quantity: qty, alertThreshold: threshold, createdAt: new Date().toISOString() });
+        toast('تم الإضافة', 'success');
+      }
+      DB.setInventory(inv);
+      hideModal('invModal');
+      renderInventory();
+    }
+
+    function openAdjust(id) {
+      adjustingId = id;
+      const item = DB.getInventory().find(i => i.id === id);
+      document.getElementById('adjustItemName').textContent = item.name;
+      document.getElementById('adj_qty').value = '1';
+      document.getElementById('adj_reason').value = '';
+      document.getElementById('adj_type').value = 'add';
+      showModal('adjustModal');
+    }
+
+    function applyAdjustment() {
+      const qty = parseInt(document.getElementById('adj_qty').value) || 1;
+      const type = document.getElementById('adj_type').value;
+      const inv = DB.getInventory();
+      const idx = inv.findIndex(i => i.id === adjustingId);
+      if (idx === -1) return;
+      if (type === 'add') {
+        inv[idx].quantity += qty;
+        toast(`تم إضافة ${qty} للمخزون`, 'success');
+      } else {
+        if (inv[idx].quantity < qty) { toast('الكمية المطلوبة أكبر من المتاح', 'error'); return; }
+        inv[idx].quantity -= qty;
+        toast(`تم خصم ${qty} من المخزون`, 'success');
+      }
+      DB.setInventory(inv);
+      hideModal('adjustModal');
+      renderInventory();
+    }
+
+    function deleteItem(id) {
+      if (!confirm('حذف هذا الصنف؟')) return;
+      DB.setInventory(DB.getInventory().filter(i => i.id !== id));
+      toast('تم الحذف', 'success');
+      renderInventory();
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('overlayBg').classList.toggle('show');
+    }
+
+    renderInventory();
+  </script>
+</body>
+</html>
